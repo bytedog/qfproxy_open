@@ -3,6 +3,7 @@ package com.qunar.qfproxy.utils;
 import com.google.common.base.Strings;
 import com.qunar.qfproxy.constants.Config;
 import com.qunar.qfproxy.constants.StorageConfig;
+import com.qunar.qfproxy.dao.EmoPackageDao;
 import com.qunar.qfproxy.model.EmoPackConf;
 import com.qunar.qfproxy.model.EmoPackXML;
 import com.qunar.qfproxy.model.JsonResult;
@@ -51,6 +52,8 @@ public class EmoPackageUtil {
 
     @Resource
     private InsertEmo insertEmo;
+    @Resource
+    private EmoPackageDao emoPackageDao;
 
     public JsonResult<?> uploadEmo(MultipartHttpServletRequest req, HttpServletResponse resp, String packageName, String thumb, String desc) throws IOException, BadHanyuPinyinOutputFormatCombination {
 
@@ -69,6 +72,12 @@ public class EmoPackageUtil {
         }
 
         String pkgId = getPinYin(packageName);
+        EmoPackConf emoByEmoId = emoPackageDao.getEmoByEmoId(pkgId);
+
+        EmoPackConf emoByEmoName = emoPackageDao.getEmoByEmoName(packageName);
+        if(emoByEmoId!=null || emoByEmoName!=null){
+            return JsonResult.newFailResult("表情包已经存在，请更换名称");
+        }
         EmoPackXML emoPackXML = new EmoPackXML();
         EmoPackXML.FACESETTINGBean facesettingBean = new EmoPackXML.FACESETTINGBean();
         List<EmoPackXML.FACESETTINGBean.DEFAULTFACEBean.FACEBean> faceBeans = new LinkedList<>();
@@ -127,7 +136,6 @@ public class EmoPackageUtil {
             emoPackXML.setFACESETTING(facesettingBean);
             Document xml = XMLUtil.dom4jToXml(emoPackXML);
             writeXMLTofile(xml, packagePosition + "/" + pkgId + ".xml");
-            File packageFile = new File(packagePosition);
             String zipName = StorageConfig.SWIFT_FOLDER_EMO_PACKAGE + defaultfaceBean.getPackageX() + ".zip";
             compress(packagePosition, zipName);
             File zipPackFile = new File(zipName);

@@ -86,5 +86,15 @@
             </if>
         </trim>
     </insert>
+    <select id="getEmoByEmoId" parameterType="java.lang.String">
+        select
+        <include refid="Base_Column_List"/>
+        FROM qtalk_emo_table where pkg_id=#{pkgId} limit 1;
+    </select>
 
+    <select id="getEmoByEmoName" parameterType="java.lang.String">
+        select
+        <include refid="Base_Column_List"/>
+        FROM qtalk_emo_table where pkg_name=#{pkgName} limit 1;
+    </select>
 </mapper>

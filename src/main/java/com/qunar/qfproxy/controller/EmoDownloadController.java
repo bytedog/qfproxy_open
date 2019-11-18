@@ -1,6 +1,7 @@
 package com.qunar.qfproxy.controller;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.google.common.base.Strings;
 import com.google.common.io.ByteStreams;
 import com.google.common.net.HttpHeaders;
 import com.qunar.qfproxy.constants.Config;
@@ -147,6 +148,9 @@ public class EmoDownloadController {
                                        @RequestParam(value = "desc") String desc,
                                        HttpServletRequest req, HttpServletResponse resp) throws IOException, BadHanyuPinyinOutputFormatCombination {
         MultipartHttpServletRequest multipartHttpServletRequest = (MultipartHttpServletRequest) req;
+        if (Strings.isNullOrEmpty(thumb) || Strings.isNullOrEmpty(packageName)) {
+            return JsonResult.newFailResult("表情包名字或封面无效");
+        }
         return emoPackageUtil.uploadEmo(multipartHttpServletRequest, resp, packageName, thumb, desc);
     }
 
