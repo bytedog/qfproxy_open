@@ -14,9 +14,6 @@ import net.sourceforge.pinyin4j.format.HanyuPinyinCaseType;
 import net.sourceforge.pinyin4j.format.HanyuPinyinOutputFormat;
 import net.sourceforge.pinyin4j.format.HanyuPinyinToneType;
 import net.sourceforge.pinyin4j.format.exception.BadHanyuPinyinOutputFormatCombination;
-import org.apache.commons.compress.archivers.zip.Zip64Mode;
-import org.apache.commons.compress.archivers.zip.ZipArchiveEntry;
-import org.apache.commons.compress.archivers.zip.ZipArchiveOutputStream;
 import org.apache.commons.io.FileUtils;
 import org.apache.commons.lang3.StringUtils;
 import org.dom4j.Document;
@@ -38,6 +35,10 @@ import java.util.List;
 import java.util.concurrent.TimeoutException;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import java.util.zip.CRC32;
+import java.util.zip.CheckedOutputStream;
+import java.util.zip.ZipEntry;
+import java.util.zip.ZipOutputStream;
 
 import static com.qunar.qfproxy.constants.Config.getProperty;
 
@@ -46,6 +47,8 @@ public class EmoPackageUtil {
     private static final Logger LOGGER = LoggerFactory.getLogger(EmoPackageUtil.class);
     public static final String EMO_SIZE = getProperty("emo.size");
     private static final String DOWNLOAD_PACKAGE_FORMAT = "%s/file/v2/emo/d/z/%s"; //http://127.0.0.1:8080/file/v2/emo/d/z/4018
+    static final int BUFFER = 8192;
+
     @Resource
     private InsertEmo insertEmo;
 
@@ -125,8 +128,8 @@ public class EmoPackageUtil {
             Document xml = XMLUtil.dom4jToXml(emoPackXML);
             writeXMLTofile(xml, packagePosition + "/" + pkgId + ".xml");
             File packageFile = new File(packagePosition);
-            String zipName = packagePosition + "/" + defaultfaceBean.getPackageX() + ".zip";
-            compressFilesZip(packageFile.listFiles(), zipName);
+            String zipName = StorageConfig.SWIFT_FOLDER_EMO_PACKAGE + defaultfaceBean.getPackageX() + ".zip";
+            compress(packagePosition, zipName);
             File zipPackFile = new File(zipName);
             String md5Zip = Md5CaculateUtil.getMD5(zipPackFile);
             long lengthZip = zipPackFile.length();
@@ -136,9 +139,9 @@ public class EmoPackageUtil {
             emoPackConf.setPkgid(pkgId);
             emoPackConf.setMd5(md5Zip);
             emoPackConf.setFileSize(lengthZip);
-            downloadURI = String.format(DOWNLOAD_PACKAGE_FORMAT,Config.PROJECT_HOST_AND_PORT,packageName);
+            downloadURI = String.format(DOWNLOAD_PACKAGE_FORMAT, Config.PROJECT_HOST_AND_PORT, pkgId);
             emoPackConf.setFile(downloadURI);
-            String thumbDown = String.format(StringUtils.join(Config.PROJECT_HOST_AND_PORT, "/file/v1/emo/d/e/%s/%s/org"), pkgId,thumbMd5);
+            String thumbDown = String.format(StringUtils.join(Config.PROJECT_HOST_AND_PORT, "/file/v1/emo/d/e/%s/%s/org"), pkgId, thumbMd5);
             emoPackConf.setThumb(thumbDown);
             insertEmo.InsertEmo(emoPackConf);
         } catch (Exception e) {
@@ -191,7 +194,76 @@ public class EmoPackageUtil {
 
     }
 
+    public static void compress(String srcPath, String dstPath) throws IOException {
+        File srcFile = new File(srcPath);
+        File dstFile = new File(dstPath);
+        if (!srcFile.exists()) {
+            throw new FileNotFoundException(srcPath + "不存在！");
+        }
 
+        FileOutputStream out = null;
+        ZipOutputStream zipOut = null;
+        try {
+            out = new FileOutputStream(dstFile);
+            CheckedOutputStream cos = new CheckedOutputStream(out, new CRC32());
+            zipOut = new ZipOutputStream(cos);
+            String baseDir = "";
+            compress(srcFile, zipOut, baseDir);
+        } finally {
+            if (null != zipOut) {
+                zipOut.close();
+                out = null;
+            }
+
+            if (null != out) {
+                out.close();
+            }
+        }
+    }
+
+    private static void compress(File file, ZipOutputStream zipOut, String baseDir) throws IOException {
+        if (file.isDirectory()) {
+            compressDirectory(file, zipOut, baseDir);
+        } else {
+            compressFile(file, zipOut, baseDir);
+        }
+    }
+
+    /**
+     * 压缩一个目录
+     */
+    private static void compressDirectory(File dir, ZipOutputStream zipOut, String baseDir) throws IOException {
+        File[] files = dir.listFiles();
+        for (int i = 0; i < files.length; i++) {
+            compress(files[i], zipOut, baseDir + dir.getName() + "/");
+        }
+    }
+
+    /**
+     * 压缩一个文件
+     */
+    private static void compressFile(File file, ZipOutputStream zipOut, String baseDir) throws IOException {
+        if (!file.exists()) {
+            return;
+        }
+
+        BufferedInputStream bis = null;
+        try {
+            bis = new BufferedInputStream(new FileInputStream(file));
+            ZipEntry entry = new ZipEntry(baseDir + file.getName());
+            zipOut.putNextEntry(entry);
+            int count;
+            byte data[] = new byte[BUFFER];
+            while ((count = bis.read(data, 0, BUFFER)) != -1) {
+                zipOut.write(data, 0, count);
+            }
+
+        } finally {
+            if (null != bis) {
+                bis.close();
+            }
+        }
+    }
 
     private boolean writeXMLTofile(Document document, String file) {
         OutputFormat format = OutputFormat.createPrettyPrint();
@@ -208,58 +280,6 @@ public class EmoPackageUtil {
         return true;
     }
 
-
-
-    public static void compressFilesZip(File[] files, String zipFilePath) {
-        if (files != null && files.length > 0) {
-            if (isEndsWithZip(zipFilePath)) {
-                ZipArchiveOutputStream zaos = null;
-                try {
-                    File zipFile = new File(zipFilePath);
-                    zaos = new ZipArchiveOutputStream(zipFile);
-                    //Use Zip64 extensions for all entries where they are required
-                    zaos.setUseZip64(Zip64Mode.AsNeeded);
-                    //将每个文件用ZipArchiveEntry封装
-                    //再用ZipArchiveOutputStream写到压缩文件中
-                    for (File file : files) {
-                        if (file != null) {
-                            ZipArchiveEntry zipArchiveEntry = new ZipArchiveEntry(file, file.getName());
-                            zaos.putArchiveEntry(zipArchiveEntry);
-                            InputStream is = null;
-                            try {
-                                is = new BufferedInputStream(new FileInputStream(file));
-                                byte[] buffer = new byte[1024 * 5];
-                                int len = -1;
-                                while ((len = is.read(buffer)) != -1) {
-                                    //把缓冲区的字节写入到ZipArchiveEntry
-                                    zaos.write(buffer, 0, len);
-                                }
-                                //Writes all necessary data for this entry.
-                                zaos.closeArchiveEntry();
-                            } catch (Exception e) {
-                                throw new RuntimeException(e);
-                            } finally {
-                                if (is != null)
-                                    is.close();
-                            }
-                        }
-                    }
-                    zaos.finish();
-                } catch (Exception e) {
-                    throw new RuntimeException(e);
-                } finally {
-                    try {
-                        if (zaos != null) {
-                            zaos.close();
-                        }
-                    } catch (Exception e) {
-                        throw new RuntimeException(e);
-                    }
-                }
-            }
-        }
-    }
-
     public static boolean isEndsWithZip(String fileName) {
         boolean flag = false;
         if (fileName != null && !"".equals(fileName.trim())) {
@@ -269,7 +289,6 @@ public class EmoPackageUtil {
         }
         return flag;
     }
-
 
 
     private String getPinYin(String name) throws BadHanyuPinyinOutputFormatCombination {
@@ -284,10 +303,10 @@ public class EmoPackageUtil {
         hanyuPinyinOutputFormat.setCaseType(HanyuPinyinCaseType.LOWERCASE);
         StringBuffer sb = new StringBuffer();
         for (int i = 0; i < name.length(); i++) {
-            String  regex = "[\u4e00-\u9fa5]";
+            String regex = "[\u4e00-\u9fa5]";
             Pattern p = Pattern.compile(regex);
             Matcher m = p.matcher(String.valueOf(name.charAt(i)));
-            if(!m.matches()){
+            if (!m.matches()) {
                 sb.append(name.charAt(i));
                 continue;
             }
